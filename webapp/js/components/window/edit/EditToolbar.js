@@ -7,9 +7,9 @@ import IconButton from 'material-ui/IconButton';
 import ContentSave from 'material-ui/svg-icons/content/save';
 import { Toolbar, ToolbarGroup } from 'material-ui/Toolbar';
 
-import { updateValue } from '../../actions/actions';
+import { updateValue } from '../../../actions/actions';
 
-import WindowToolbarTitle from './WindowToolbarTitle';
+import WindowToolbarTitle from '../WindowToolbarTitle';
 
 class EditToolbar extends React.Component {
 
@@ -41,7 +41,7 @@ EditToolbar.propTypes = {
     editedValue: PropTypes.string,
     selectedKey: PropTypes.string,
     namespace: PropTypes.string,
-    updateValue: PropTypes.function,
+    updateValue: PropTypes.func,
     path: PropTypes.string,
 };
 
