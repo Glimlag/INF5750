@@ -25,7 +25,7 @@ This web application has been created using React and Redux.
 # Group Members - #fff
 - Birk as Birkbjo
 - Pavel as Pavel Jurasek
-- Steven as Glimlag & shicks1000
+- Steven as Stevenah
 
 # Credits
 Icon made by http://www.flaticon.com/authors/madebyoliver from www.flaticon.com
