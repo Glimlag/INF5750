@@ -24,7 +24,7 @@ npm run test
 ## Tools
 This web application has been created using React and Redux.
 
-## Group Members - #fff
+## Group Members
 - Birk as Birkbjo
 - Pavel as Pavel Jurasek
 - Steven as Stevenah
