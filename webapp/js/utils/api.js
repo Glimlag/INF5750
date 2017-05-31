@@ -1,9 +1,7 @@
 import { API_URL } from 'constants/apiUrls';
 import { CREATED, UPDATED, DELETED } from 'constants/apiHistoryActions';
 import { sprintf } from 'sprintf-js';
-import btoa from 'btoa';
-
-let apiClass = undefined;
+import { init, getInstance } from 'd2/lib/d2';
 
 class Api
 {
@@ -16,57 +14,34 @@ class Api
         this.url = url;
         this.auth = auth;
         this.cache = [];
+        this.userId = "";
         this.ignoredStores = ['METADATASTORE', 'HISTORYSTORE'];
-    }
-
-    init() {
-        return this.checkSession().then(() => this);
-    }
-
-    checkSession(retry) {
-        return fetch(`${this.url}/me`, this.getHeaders())
-            .then(response => this.successOnly(response))
-            .then(response => response.json())
-            .then(user => this.userId = user.userCredentials.username) // fetch userId that is used for history logging
-            .catch(err => {
-                // use auth in development, as no session exists
-                if (process.env.NODE_ENV === 'development' && !retry) {
-                    this.auth = `Basic ${btoa('admin:district')}`;
-                    return this.checkSession(true);
-                } else {
-                    throw err;
-                }
-            });
+        let headers = process.env.NODE_ENV === 'development' ? { Authorization: 'Basic YWRtaW46ZGlzdHJpY3Q=' } : null;
+        this.d2 = init({baseUrl: 'https://play.dhis2.org/test/api', headers}).then(d2 => {
+            this.userId = d2.currentUser.username;
+        });
+        this.historyStore = getInstance().then(d2 => d2.dataStore.get('HISTORYSTORE'));
     }
 
     getNamespaces() {
-        return fetch(`${this.url}/dataStore`, this.getHeaders())
-            .then(response => this.successOnly(response))
-            .then(response => response.json())
-            .then(response => response.filter((value) => this.ignoredStores.indexOf(value) === -1));
+        return getInstance().then(d2 => d2.dataStore.getAll().
+            then(response => response.filter((value) => this.ignoredStores.indexOf(value) === -1)));
     }
 
     deleteNamespace(namespace) {
-        return fetch(`${this.url}/dataStore/${namespace}`, {
-            ...this.getHeaders(),
-            method: 'DELETE',
-        })
-            .then(response => this.successOnly(response))
-            .then(response => response.json())
+        return getInstance().then(d2 => d2.dataStore.delete(namespace))
             .then(response => {
                 this.cache[namespace] = [];
                 this.updateNamespaceHistory(namespace, null, {
                     action: DELETED,
-                    user: this.userId,
+                    user: d2.currentUser.username,
                 });
                 return response;
             });
     }
 
     getKeys(namespace) {
-        return fetch(`${this.url}/dataStore/${namespace}`, this.getHeaders())
-            .then(response => this.successOnly(response))
-            .then(response => response.json())
+        return getInstance().then(d2 => d2.dataStore.get(namespace)).then(resName => resName.getKeys())
             .catch(error => Promise.reject(error));
     }
 
@@ -104,9 +79,7 @@ class Api
      * @param key
      */
     getMetaData(namespace, key) {
-        return fetch(`${this.url}/dataStore/${namespace}/${key}/metaData`, this.getHeaders())
-            .then(response => this.successOnly(response))
-            .then(response => response.json());
+        return getInstance().then(d2 => d2.dataStore.get(namespace, false)).then(namespace => namespace.getMetaData(key));
     }
 
     /**
@@ -116,13 +89,7 @@ class Api
      * @param log Should action be logged?
      */
     createValue(namespace, key, value, log = true) {
-        return fetch(`${this.url}/dataStore/${namespace}/${key}`, {
-            ...this.getHeaders(),
-            method: 'POST',
-            body: JSON.stringify(value),
-        })
-            .then(response => this.successOnly(response))
-            .then(response => response.json())
+        return getInstance().then(d2 => d2.dataStore.get(namespace)).then(resName => resName.set(key, value))
             .then(response => {
                 // cache value
                 if (this.cache[namespace] === undefined) {
@@ -144,13 +111,7 @@ class Api
      * @param log Should action be logged?
      */
     updateValue(namespace, key, value, log = true) {
-        return fetch(`${this.url}/dataStore/${namespace}/${key}`, {
-            ...this.getHeaders(),
-            method: 'PUT',
-            body: JSON.stringify(value),
-        })
-            .then(response => this.successOnly(response))
-            .then(response => response.json())
+        return getInstance().then(d2 => d2.dataStore.get(namespace)).then(resName => resName.update(key, value))
             .then(response => {
                 // cache value
                 if (this.cache[namespace] === undefined) {
@@ -164,12 +125,7 @@ class Api
     }
 
     deleteValue(namespace, key) {
-        return fetch(`${this.url}/dataStore/${namespace}/${key}`, {
-            ...this.getHeaders(),
-            method: 'DELETE',
-        })
-            .then(response => this.successOnly(response))
-            .then(response => response.json())
+        return getInstance().then(d2 => d2.dataStore.get(namespace)).then(resName => resName.delete(key))
             .then(response => {
                 // delete cache value
                 if (this.cache[namespace] !== undefined && this.cache[namespace][key] !== undefined) {
@@ -189,7 +145,7 @@ class Api
      */
     getHistory(namespace, key = null) {
         const id = key === null ? namespace : this.buildId(namespace, key);
-        return fetch(`${this.url}/dataStore/HISTORYSTORE/${id}`, this.getHeaders());
+        return this.historyStore.then(hsStore => hsStore.get(id));
     }
 
     /**
@@ -199,9 +155,9 @@ class Api
      */
     getHistoryOfKey(namespace, key) {
         const id = this.buildId(namespace, key);
-        return fetch(`${this.url}/dataStore/HISTORYSTORE/${id}`, this.getHeaders())
-          .then(response => this.successOnly(response))
-          .then(response => response.json());
+        return this.historyStore.then(hsStore => {
+            return hsStore.get(id)
+        });
     }
 
     /**
@@ -209,9 +165,7 @@ class Api
      * @param namespace
      */
     getHistoryOfNamespace(namespace) {
-        return fetch(`${this.url}/dataStore/HISTORYSTORE/${namespace}`, this.getHeaders())
-          .then(response => this.successOnly(response))
-          .then(response => response.json());
+        return this.historyStore.then(hsStore => hsStore.get(namespace));
     }
 
     /**
@@ -231,16 +185,18 @@ class Api
         };
 
         return this.getHistory(namespace, key)
-            .then(response => {
-                if (response.status === 404) { // this history record is first
-                    this.createValue('HISTORYSTORE', id, [historyRecord], false);
-                    return null;
-                }
-                return response.json();
-            }).then(history => {
+            .then(history => {
                 if (history !== null) { // update history
                     history.unshift(historyRecord);
                     this.updateValue('HISTORYSTORE', id, history, false);
+                }
+            })
+            .catch(e => {
+                console.log(e)
+                if (e.httpStatusCode === 404) { // this history record is first
+                    console.log("createvalue")
+                    this.createValue('HISTORYSTORE', id, [historyRecord], false);
+                    return null;
                 }
             }).then(() => this.updateNamespaceHistory(namespace, key, historyRecord));
     }
@@ -258,29 +214,15 @@ class Api
             user: historyRecord.user,
             value: sprintf('Key \'%s\' was %s.', key, historyRecord.action.toLowerCase()),
         };
-
+        console.log("update namespace history ")
         return this.getHistory(namespace)
-            .then(response => {
-                if (response.status === 404) { // this history record is first
-                    const value = [{
-                        name: namespace,
-                        action: CREATED,
-                        date: namespaceHistoryRecord.date,
-                        user: historyRecord.user,
-                        value: 'Namespace was created.',
-                    }];
-
-                    return this.createValue('HISTORYSTORE', namespace, value, false)
-                        .then(response => new Promise((resolve, reject) => resolve(value)));
-                }
-                return response.json();
-            }).then(history => {
+            .then(history => {
                 history.unshift(namespaceHistoryRecord);
 
                 if (historyRecord.action === DELETED) { // special check for delete action
                     this.getKeys(namespace)
                         .then(response => {
-                            if (response.status === 404) { // last key in namespace was deleted, namespace got deleted too
+                            if (response.length < 1) { // last key in namespace was deleted, namespace got deleted too
                                 history.unshift({
                                     name: namespace,
                                     action: DELETED,
@@ -293,12 +235,31 @@ class Api
                             }
 
                             this.updateValue('HISTORYSTORE', namespace, history, false);
-                        });
+                        }).catch(e => {
+                        console.log(e)
+                    });
                 } else { // create or update action
                     this.updateValue('HISTORYSTORE', namespace, history, false);
                 }
+            }).catch(e => {
+                if (e.httpStatusCode === 404) { // this history record is first
+                    const value = [{
+                        name: namespace,
+                        action: CREATED,
+                        date: namespaceHistoryRecord.date,
+                        user: historyRecord.user,
+                        value: 'Namespace was created.',
+                    }];
+                    return this.createValue('HISTORYSTORE', namespace, value, false)
+                        .then(response => new Promise((resolve, reject) => resolve(value)))
+                        .then(history => {
+                            history.unshift(namespaceHistoryRecord);
+                            this.updateValue('HISTORYSTORE', namespace, history, false);
+                        })
+                }
             });
     }
+
 
     /**
      * Make sure the response status code is 2xx
@@ -338,9 +299,5 @@ class Api
     }
 }
 
-export default (function getApi() {
-    if (typeof apiClass === 'undefined') {
-        apiClass = new Api(API_URL);
-    }
-    return apiClass;
-}());
+export default (() =>
+    new Api(API_URL))();
