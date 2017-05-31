@@ -1,5 +1,5 @@
-# INF5750
-Project related to course INF5750.
+# DHIS2 Datastore Application
+An application created to manage the datastore in DHIS2. It was created as part of the course INF5750 at the university of Oslo.
 
 #Installation
  Unzip, cd to directory then:
